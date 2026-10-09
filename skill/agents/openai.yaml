@@ -1,0 +1,4 @@
+interface:
+  display_name: "video-hook"
+  short_description: "从成片提炼贴合主旨的连贯钩子，支持忠于原意的精剪与确认后前置"
+  default_prompt: "使用 $video-hook 分析我的成片和 SRT，先给出与主旨相关、表达连贯的钩子预览，确认后再前置到正文。"
