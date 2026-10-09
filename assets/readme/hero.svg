@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" role="img" aria-labelledby="title desc">
 <title id="title">video-hook — 把值得追问的结果，放到开头</title>
-<desc id="desc">从成片中保留有主旨关联的连贯片段，精剪后渐黑，再进入正文。明基案例从22秒精简到14.1秒。</desc>
+<desc id="desc">从成片中保留有主旨关联的连贯片段，精剪后渐黑，再进入正文。明基案例从22秒精简到14.1秒，转场保留A版：0.4秒渐黑加0.2秒纯黑。</desc>
 <defs><linearGradient id="fade"><stop stop-color="#7cf2bf"/><stop offset="1" stop-color="#11151b"/></linearGradient></defs>
 <rect width="1200" height="620" rx="24" fill="#11151b"/>
 <g font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
@@ -17,5 +17,5 @@
 <text x="28" y="103" fill="#11151b" font-size="32" font-weight="600">前态 → 切换 → 结果</text>
 <text x="831" y="103" fill="#11151b" font-size="32" font-weight="600" text-anchor="middle">回切验证</text>
 <path d="M0 148h1088 M0 144v14 M670 144v14 M978 144v14 M1088 144v14" stroke="#647181" stroke-width="2"/>
-<text y="190" fill="#a6b0bd" font-size="24">删掉解释与铺垫，保留完整对比。</text>
+<text y="190" fill="#a6b0bd" font-size="24">保留 A 版 · 渐黑 0.4s + 黑场 0.2s → 正文</text>
 </g></g></svg>
