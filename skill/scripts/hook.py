@@ -8,6 +8,8 @@ import re
 import shutil
 import subprocess
 import sys
+import struct
+import os
 from pathlib import Path
 from fractions import Fraction
 
@@ -124,7 +126,8 @@ def prepare(args):
     write(out / 'windows.json', windows)
     plan = {'version': 1, 'source': source, 'theme': '', 'theme_connection': '', 'surprise': '',
             'preserved_meaning': '', 'segments': [], 'fps': v['avg_frame_rate'],
-            'fade_seconds': 0.4, 'black_seconds': 0.2, 'fade_overlap_seconds': 0,
+            'fade_seconds': round(.4 * float(Fraction(v['avg_frame_rate']))) / float(Fraction(v['avg_frame_rate'])),
+            'black_seconds': round(.2 * float(Fraction(v['avg_frame_rate']))) / float(Fraction(v['avg_frame_rate'])), 'fade_overlap_seconds': 0,
             'audio_tail_fade_seconds': 0.02,
             'existing_opening': {'status': 'unknown', 'body_start': 0}}
     write(out / 'plan.template.json', plan)
@@ -207,58 +210,160 @@ def encode_args(fps):
 
 
 def verify_video(path, expected, width, height, fps):
-    p, v, actual = media_info(path)
-    if abs(actual - expected) > max(.08, 2 / fps) or (v['width'], v['height']) != (width, height):
-        raise ValueError(f'Output mismatch: duration={actual}, expected={expected}')
+    _, v, actual = media_info(path)
+    expected_frames = round(expected * fps)
+    frames = int(v.get('nb_frames', 0))
+    if (abs(actual - expected) > max(.08, 2 / fps)
+            or (v['width'], v['height']) != (width, height)
+            or abs(float(Fraction(v['avg_frame_rate'])) - fps) > .0001
+            or frames != expected_frames):
+        raise ValueError(f'Output mismatch: duration={actual}, frames={frames}, expected={expected}/{expected_frames}')
     run(['ffmpeg', '-nostdin', '-v', 'error', '-xerror', '-i', path, '-f', 'null', '-'])
     return {'full_decode': 'passed', 'duration': actual, 'expected_duration': expected,
+            'frames': frames, 'expected_frames': expected_frames, 'fps': fps,
             'width': width, 'height': height, 'sha256': digest(path)}
 
 
-def render(args):
-    p, v, fps, _ = validate_plan(args.plan)
-    out = fresh(args.out)
-    ratio = min(1, args.max_side / max(v['width'], v['height'])) if args.max_side else 1
-    w, h = [max(2, round(v[k] * ratio / 2) * 2) for k in ('width', 'height')]
+def frame_duration(seconds, fps):
+    # Round up only the container's fractional last frame; never lose the tail audio.
+    return math.ceil(seconds * fps - .00001) / fps
+
+
+def hook_duration(p):
+    raw = sum(b - a for a, b in p['segments'])
+    return raw + p['fade_seconds'] + p['black_seconds'] - p.get('fade_overlap_seconds', 0)
+
+
+def preview_length(p, duration, fps, requested=None):
+    start = float(p['existing_opening']['body_start'])
+    available = duration - start
+    if requested is not None:
+        requested = number(requested, 'body_seconds')
+        if requested <= 0:
+            raise ValueError('body_seconds must be positive')
+        return frame_duration(min(available, requested), fps)
+    ends = [c['end'] - start for c in parse_srt(p['source']['srt'])
+            if 10 <= c['end'] - start <= min(20, available)]
+    # Cue ends are a review aid, not proof of sentence/audio boundaries.
+    chosen = min(ends, key=lambda x: abs(x - 15)) if ends else min(15, available)
+    return frame_duration(chosen, fps)
+
+
+def output_cues(p, body_duration=None):
+    cues = parse_srt(p['source']['srt'])
+    mapped = mapped_cues(cues, p['segments'])
+    if body_duration is not None:
+        start = float(p['existing_opening']['body_start'])
+        for c in mapped_cues(cues, [[start, start + body_duration]]):
+            mapped.append({**c, 'start': c['start'] + hook_duration(p),
+                           'end': c['end'] + hook_duration(p)})
+    return mapped
+
+
+def render_source(p, target, w, h, body_duration=None):
+    """Encode from the canonical source once, including both hook and body."""
+    fps = float(Fraction(str(p['fps'])))
     cmd = ['ffmpeg', '-nostdin', '-v', 'error', '-n']
     filters, join, raw = [], [], 0.0
     for i, (a, b) in enumerate(p['segments']):
         length = b - a
         cmd += ['-ss', str(a), '-t', str(length), '-i', p['source']['video']]
-        filters.append(f'[{i}:v]setpts=PTS-STARTPTS,fps={fps},scale={w}:{h},setsar=1,trim=duration={length}[v{i}]')
+        filters.append(f'[{i}:v:0]setpts=PTS-STARTPTS,fps={p["fps"]},scale={w}:{h},setsar=1,trim=duration={length}[v{i}]')
         fadeout = min(length / 2, p.get('audio_tail_fade_seconds', .02) if i == len(p['segments']) - 1 else .02)
-        filters.append(f'[{i}:a]asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,apad,atrim=duration={length},afade=t=in:d={min(.005,length/2)},afade=t=out:st={length-fadeout}:d={fadeout}[a{i}]')
+        filters.append(f'[{i}:a:0]asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,apad,atrim=duration={length},afade=t=in:d={min(.005,length/2)},afade=t=out:st={length-fadeout}:d={fadeout}[a{i}]')
         join.extend([f'[v{i}]', f'[a{i}]'])
         raw += length
     fade, black, overlap = p['fade_seconds'], p['black_seconds'], p.get('fade_overlap_seconds', 0)
-    pad = fade + black - overlap
-    total = raw + pad
+    pad, total = fade + black - overlap, hook_duration(p)
     filters += [''.join(join) + f'concat=n={len(p["segments"])}:v=1:a=1[v][a]',
-                f'[v]tpad=stop_mode=clone:stop_duration={pad},fade=t=out:st={raw-overlap}:d={fade}[vo]',
-                f'[a]apad,atrim=duration={total}[ao]']
+                f'[v]tpad=stop_mode=clone:stop_duration={pad},fade=t=out:st={raw-overlap}:d={fade}[hv]',
+                f'[a]apad,atrim=duration={total}[ha]']
+    if body_duration is not None:
+        i = len(p['segments'])
+        cmd += ['-ss', str(p['existing_opening']['body_start']), '-t', str(body_duration), '-i', p['source']['video']]
+        filters += [f'[{i}:v:0]setpts=PTS-STARTPTS,fps={p["fps"]},scale={w}:{h},setsar=1,tpad=stop_mode=clone:stop_duration={1/fps},trim=duration={body_duration}[bv]',
+                    f'[{i}:a:0]asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,apad,atrim=duration={body_duration}[ba]',
+                    '[hv][ha][bv][ba]concat=n=2:v=1:a=1[vo][ao]']
+        total += body_duration
+    else:
+        filters += ['[hv]null[vo]', '[ha]anull[ao]']
+    cmd += ['-filter_complex_threads', '1', '-filter_complex', ';'.join(filters),
+            '-map', '[vo]', '-map', '[ao]', '-t', str(total)] + encode_args(p['fps']) + [str(target)]
+    return cmd, total
+
+
+def join_evidence(target, out, p, total):
+    """Check the intentional separator and expose body frames for human review."""
+    seam = hook_duration(p)
+    t = seam - p['black_seconds'] / 2
+    rgb = subprocess.check_output(['ffmpeg', '-nostdin', '-v', 'error', '-ss', str(t), '-i', str(target),
+                                   '-frames:v', '1', '-vf', 'scale=32:18', '-pix_fmt', 'rgb24', '-f', 'rawvideo', '-'])
+    if not rgb or max(rgb) > 8:
+        raise ValueError('Expected black separator missing')
+    length = min(.05, p['black_seconds'] / 4)
+    pcm = subprocess.check_output(['ffmpeg', '-nostdin', '-v', 'error', '-ss', str(t), '-i', str(target),
+                                   '-t', str(length), '-vn', '-ac', '1', '-ar', '48000', '-f', 'f32le', '-'])
+    samples = [x[0] for x in struct.iter_unpack('<f', pcm)]
+    if not samples:
+        raise ValueError('Separator audio could not be checked')
+    rms = math.sqrt(sum(x*x for x in samples) / len(samples))
+    if rms > .006:
+        raise ValueError('Unexpected audio in black separator')
+    fps = float(Fraction(str(p['fps'])))
+    frames = {}
+    for label, time in [('separator', t), ('body_first', seam),
+                        ('body_middle', (seam + total) / 2), ('body_last', total - 1/fps)]:
+        path = out / (target.stem + '_' + label + '.jpg')
+        run(['ffmpeg', '-nostdin', '-v', 'error', '-n', '-ss', time, '-i', target,
+             '-frames:v', 1, '-vf', 'scale=640:640:force_original_aspect_ratio=decrease', path])
+        if not path.is_file():
+            raise ValueError('Missing review frame: ' + label)
+        frames[label] = str(path)
+    return {'body_output_start': seam, 'black_pixel_max': max(rgb), 'separator_audio_rms': rms,
+            'frames': frames, 'human_listening': 'pending', 'human_visual_review': 'pending'}
+
+
+def render(args):
+    p, v, fps, duration = validate_plan(args.plan)
+    body = preview_length(p, duration, fps, getattr(args, 'body_seconds', None))
+    out = fresh(args.out)
+    ratio = min(1, args.max_side / max(v['width'], v['height'])) if args.max_side else 1
+    w, h = [max(2, round(v[k] * ratio / 2) * 2) for k in ('width', 'height')]
     target = out / 'hook.mp4'
-    cmd += ['-filter_complex_threads', '1', '-filter_complex', ';'.join(filters), '-map', '[vo]', '-map', '[ao]', '-t', str(total)] + encode_args(fps) + [str(target)]
-    write(out / 'command.json', cmd)
+    cmd, total = render_source(p, target, w, h)
+    write(out / 'command.json', list(map(str, cmd)))
     run(cmd)
     qa = verify_video(target, total, w, h, fps)
-    tail = subprocess.run(['ffmpeg', '-nostdin', '-v', 'info', '-sseof', '-2', '-i', str(target),
-                           '-vf', 'blackdetect=d=0.05:pix_th=0.05', '-af', 'silencedetect=n=-50dB:d=0.05', '-f', 'null', '-'], capture_output=True, text=True, check=True).stderr
-    (out / 'tail-events.txt').write_text(tail)
-    if 'black_start:' not in tail or 'silence_start:' not in tail:
-        raise ValueError('Expected black/silent tail was not detected')
+    save_srt(out / 'hook.srt', output_cues(p))
+    preview = out / 'preview.mp4'
+    cmd, preview_total = render_source(p, preview, w, h, body)
+    write(out / 'preview-command.json', list(map(str, cmd)))
+    run(cmd)
+    preview_qa = verify_video(preview, preview_total, w, h, fps)
+    seam_qa = join_evidence(preview, out, p, preview_total)
+    save_srt(out / 'preview.srt', output_cues(p, body))
     write(out / 'plan.json', p)
-    save_srt(out / 'hook.srt', mapped_cues(parse_srt(p['source']['srt']), p['segments']))
-    manifest = {'plan_sha256': digest(out / 'plan.json'), 'qa': qa, 'width': w, 'height': h, 'fps': fps,
-                'raw_duration': raw, 'hook_duration': total, 'review': 'pending human audio and semantic review'}
+    manifest = {'schema_version': 2, 'plan_sha256': digest(out / 'plan.json'), 'qa': qa,
+                'width': w, 'height': h, 'fps': fps, 'hook_duration': total,
+                'raw_duration': sum(b-a for a,b in p['segments']),
+                'hook_srt_sha256': digest(out / 'hook.srt'),
+                'preview': {'qa': preview_qa, 'srt_sha256': digest(out / 'preview.srt'),
+                            'body_start': p['existing_opening']['body_start'], 'body_duration': body,
+                            'join': seam_qa}, 'review': 'pending human audio and semantic review'}
     write(out / 'manifest.json', manifest)
-    return {'render': str(out), **manifest}
+    return {'render': str(out), 'preview': str(preview), **manifest}
 
 
 def reviewed_render(directory):
     folder = Path(directory).resolve()
     m = read(folder / 'manifest.json')
-    if digest(folder / 'plan.json') != m['plan_sha256'] or digest(folder / 'hook.mp4') != m['qa']['sha256']:
-        raise ValueError('Render or plan changed after validation; render again')
+    if m.get('schema_version') != 2:
+        raise ValueError('Render a joined preview with this version before approval/delivery')
+    checks = {'plan.json': m['plan_sha256'], 'hook.mp4': m['qa']['sha256'],
+              'hook.srt': m['hook_srt_sha256'], 'preview.mp4': m['preview']['qa']['sha256'],
+              'preview.srt': m['preview']['srt_sha256']}
+    if any(digest(folder / name) != sha for name, sha in checks.items()):
+        raise ValueError('Render, subtitles or plan changed after validation; render again')
     p, _, _, duration = validate_plan(folder / 'plan.json')
     return folder, m, p, duration
 
@@ -270,47 +375,99 @@ def approve(args):
     if p['existing_opening']['status'] == 'unknown':
         raise ValueError('Inspect the original opening and resolve unknown before approving prepend')
     opening = p['existing_opening']
-    if opening['status'] == 'present' and not args.opening_quote:
+    if opening['status'] == 'present' and not args.opening_quote.strip():
         raise ValueError('Record explicit user choice to keep or replace the existing opening')
-    value = {'render': str(folder), 'plan_sha256': m['plan_sha256'], 'hook_sha256': m['qa']['sha256'],
+    value = {'render': str(folder), 'manifest_sha256': digest(folder / 'manifest.json'),
+             'plan_sha256': m['plan_sha256'], 'hook_sha256': m['qa']['sha256'],
+             'preview_sha256': m['preview']['qa']['sha256'],
              'user_quote': args.quote, 'opening_quote': args.opening_quote,
-             'scope': 'approve hook audio/meaning and prepend with the body_start in this plan'}
+             'scope': 'approve editorial plan and joined preview; deliver full body at source size beside source'}
     write(folder / 'approval.json', value)
     return value
+
+
+def reserve_delivery(source):
+    # Reserve a common basename, including a sidecar-only collision and concurrent runs.
+    for version in range(1, 100000):
+        stem = source.stem + f'_hook_v{version}'
+        target = source.parent / (stem + '.mp4')
+        sidecar = source.parent / (stem + '.srt')
+        receipt = source.parent / (stem + '.json')
+        lock = source.parent / ('.' + stem + '.lock')
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            os.close(fd)
+        except FileExistsError:
+            continue
+        if any(x.exists() or x.is_symlink() for x in (target, sidecar, receipt,
+                *(x.with_name('.' + x.name + '.partial') for x in (target, sidecar, receipt)))):
+            lock.unlink()
+            continue
+        return target, sidecar, receipt, lock
+    raise ValueError('No free output version')
 
 
 def prepend(args):
     folder, m, p, duration = reviewed_render(args.render)
     a = read(folder / 'approval.json')
-    if a['plan_sha256'] != m['plan_sha256'] or a['hook_sha256'] != m['qa']['sha256'] or not a['user_quote'].strip():
+    if (a.get('manifest_sha256') != digest(folder / 'manifest.json')
+            or a['plan_sha256'] != m['plan_sha256'] or a['hook_sha256'] != m['qa']['sha256']
+            or a.get('preview_sha256') != m['preview']['qa']['sha256'] or not a['user_quote'].strip()):
         raise ValueError('Approval does not match this render')
-    if p['existing_opening']['status'] == 'unknown' or (p['existing_opening']['status'] == 'present' and not a.get('opening_quote')):
+    if p['existing_opening']['status'] == 'unknown' or (p['existing_opening']['status'] == 'present' and not a.get('opening_quote', '').strip()):
         raise ValueError('Original opening still requires a user decision')
+    source = Path(p['source']['video'])
+    _, v, _ = media_info(source)
+    w, h, fps = v['width'], v['height'], float(Fraction(str(p['fps'])))
+    if w % 2 or h % 2:
+        raise ValueError('Source dimensions must be even for H.264 yuv420p delivery')
+    if abs(fps - float(Fraction(v['avg_frame_rate']))) > .0001:
+        raise ValueError('Full delivery must use source frame rate; prepare/review a matching plan')
+    body = frame_duration(duration - p['existing_opening']['body_start'], fps)
     out = fresh(args.out)
-    start = float(p['existing_opening']['body_start'])
-    fps, w, h = m['fps'], m['width'], m['height']
-    body_duration = duration - start
-    total = m['hook_duration'] + body_duration
-    graph = (f'[0:v]fps={fps},setsar=1,setpts=PTS-STARTPTS[v0];'
-             '[0:a]aresample=48000,aformat=channel_layouts=stereo,asetpts=PTS-STARTPTS[a0];'
-             f'[1:v]fps={fps},scale={w}:{h},setsar=1,setpts=PTS-STARTPTS[v1];'
-             f'[1:a]aresample=48000,aformat=channel_layouts=stereo,apad,atrim=duration={body_duration},asetpts=PTS-STARTPTS[a1];'
-             '[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][a]')
-    target = out / 'final.mp4'
-    cmd = ['ffmpeg', '-nostdin', '-v', 'error', '-n', '-i', folder / 'hook.mp4', '-ss', start, '-i', p['source']['video'],
-           '-filter_complex_threads', '1', '-filter_complex', graph, '-map', '[v]', '-map', '[a]', '-t', total] + encode_args(fps) + [target]
-    cmd = [str(x) for x in cmd]
-    write(out / 'command.json', cmd)
-    run(cmd)
-    qa = verify_video(target, total, w, h, fps)
-    cues = parse_srt(p['source']['srt'])
-    mapped = mapped_cues(cues, p['segments'])
-    for c in mapped_cues(cues, [[start, duration]]):
-        mapped.append({**c, 'start': c['start'] + m['hook_duration'], 'end': c['end'] + m['hook_duration']})
-    save_srt(out / 'final.srt', mapped)
-    write(out / 'manifest.json', {'qa': qa, 'approval': a, 'source': p['source'], 'body_start': start,
-                                'note': 'Body re-encoded to the approved hook resolution; original source unchanged.'})
-    return {'output': str(target), 'qa': qa}
+    target, sidecar, receipt, lock = reserve_delivery(source)
+    try:
+        staged = out / 'final.mp4'
+        cmd, total = render_source(p, staged, w, h, body)
+        write(out / 'command.json', list(map(str, cmd)))
+        run(cmd)
+        qa = verify_video(staged, total, w, h, fps)
+        seam_qa = join_evidence(staged, out, p, total)
+        save_srt(out / 'final.srt', output_cues(p, body))
+        # Recheck inputs after a long render before publishing a final filename.
+        validate_plan(folder / 'plan.json')
+        result = {'output': str(target), 'srt': str(sidecar), 'qa': qa, 'join': seam_qa,
+                  'approval': a, 'source': p['source'], 'body_start': p['existing_opening']['body_start'],
+                  'body_duration': body, 'hook_duration': hook_duration(p),
+                  'source_unchanged': True, 'srt_sha256': digest(out / 'final.srt'),
+                  'work_directory': str(out), 'note': 'One encode from original source at source size/fps; original body retained.'}
+        write(out / 'manifest.json', result)
+        # Copy to hidden files on the destination volume, then expose complete files
+        # exclusively. The receipt is published last and is the completion marker.
+        hidden, published = [], []
+        try:
+            for src, dst, sha in [(staged, target, qa['sha256']),
+                                  (out / 'final.srt', sidecar, result['srt_sha256']),
+                                  (out / 'manifest.json', receipt, digest(out / 'manifest.json'))]:
+                partial = dst.with_name('.' + dst.name + '.partial')
+                with src.open('rb') as reader, partial.open('xb') as writer:
+                    hidden.append(partial)
+                    shutil.copyfileobj(reader, writer)
+                if digest(partial) != sha:
+                    raise ValueError('Delivery copy hash mismatch')
+            for partial, dst in zip(hidden, (target, sidecar, receipt)):
+                os.link(partial, dst)  # Atomic, fails if another writer created dst.
+                published.append(dst)
+            return result
+        except Exception:
+            for path in published:
+                path.unlink()
+            raise
+        finally:
+            for path in hidden:
+                path.unlink()
+    finally:
+        lock.unlink()
 
 
 def main():
@@ -330,7 +487,8 @@ def main():
     p = sub.add_parser('render')
     p.add_argument('--plan', required=True)
     p.add_argument('--out', required=True)
-    p.add_argument('--max-side', type=int, default=1920, help='0 = original size; final prepend uses this same resolution')
+    p.add_argument('--max-side', type=int, default=1920, help='Preview only: 0 = original size; final delivery always uses source size')
+    p.add_argument('--body-seconds', type=float, help='Body excerpt after hook; default near a cue end at 10-20 seconds')
     p.set_defaults(func=render)
     p = sub.add_parser('approve')
     p.add_argument('--render', required=True)
@@ -339,7 +497,7 @@ def main():
     p.set_defaults(func=approve)
     p = sub.add_parser('prepend')
     p.add_argument('--render', required=True)
-    p.add_argument('--out', required=True)
+    p.add_argument('--out', required=True, help='New audit/work directory; delivery files are versioned beside source')
     p.set_defaults(func=prepend)
     args = parser.parse_args()
     if getattr(args, 'max_side', 0) < 0:

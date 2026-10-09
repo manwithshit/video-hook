@@ -4,7 +4,7 @@
 
 **从剪好的视频里，挑出让人想继续看正文的那一段。**
 
-给 Agent 一份成片和匹配的 SRT，它理解整片主旨，挑出有结果、有反差或反常识的片段，保持原意做精剪。你认可预览后，再前置到正文。
+给 Agent 一份成片和匹配的 SRT，它理解整片主旨，挑出有结果、有反差或反常识的片段，保持原意做精剪。预览包含钩子与正文开头；你认可后，交付钩子与完整原片拼接的新成片。
 
 `Private dogfood` · `本地 FFmpeg` · `一份环境，多个 Agent`
 
@@ -30,9 +30,9 @@
 - **可以精剪，不能改意。** 删解释、重复和铺垫，保持原声、因果与操作顺序。
 - **完整比秒数重要。** 10 秒只是参考，表达自然可以更长。
 
-工作流：`成片 + SRT → 理解整片 → 候选精剪 → 用户确认 → 渐黑钩子 + 正文`
+工作流：`成片 + SRT → 理解整片 → 钩子及正文开头预览 → 用户确认 → 钩子 + 完整原片`
 
-已有片头时，先确认保留还是替换。所有输出写入新目录，源文件不覆盖。
+最终文件与原视频放在**同一文件夹**，另存为 `final_hook_v1.mp4`、`final_hook_v1.srt` 和 `final_hook_v1.json`；重名自动递增。正文默认从 0 秒完整接入，抽出的片段仍保留在正文。已有钩子时，先确认保留还是替换。源文件不覆盖。
 
 ## 安装一次
 
@@ -80,9 +80,20 @@ python3 skill/scripts/run.py render \
   --max-side 1920
 ```
 
-输出包括 MP4、重映射 SRT、选段计划、FFmpeg 命令、哈希和技术检查结果。用户明确确认后执行 `approve` 与 `prepend`，详见 [CLI 合约](skill/references/cli.md)。
+复核 `preview.mp4`：钩子、A 版转场和约 10–20 秒正文；`hook.mp4` 仅为中间产物。用 `--body-seconds` 可指定正文预览时长。用户确认后：
 
-`--max-side 0` 保持原尺寸；前置成片沿用已批准钩子的尺寸。要交付 4K，就先以原尺寸制作预览。
+```bash
+python3 skill/scripts/run.py approve \
+  --render '/absolute/hook-preview-v1' \
+  --quote '用户对选段、衔接与完整前置的实际确认原话'
+python3 skill/scripts/run.py prepend \
+  --render '/absolute/hook-preview-v1' \
+  --out '/absolute/hook-delivery-work-v1'
+```
+
+`--out` 保存命令、检查记录和暂存文件；最终成片自动另存在原视频同一文件夹。完整约定见 [CLI 合约](skill/references/cli.md)。
+
+`--max-side` 只影响预览；最终从原片按原尺寸、原帧率一次编码。4K 原片可以用 1080p 预览，不会因此交付低清成片。
 
 </details>
 
@@ -102,7 +113,7 @@ python3 skill/scripts/run.py render \
 python3 -m unittest discover -s tests -v
 ```
 
-测试覆盖中文字幕解析/时间重映射、真实 FFmpeg 预览及前置、审批缺失/过期、错误切点与源文件变更保护。当前处于 Private Dogfood 阶段。[本次实际验证与未验证范围 →](VALIDATION.md)
+测试覆盖完整正文的画面、声音和字幕，低清预览后的原尺寸输出，分数帧率与竖屏，同目录版本命名，审批失效，已有片头处理及编码/写入失败保护。当前处于 Private Dogfood 阶段。[本次实际验证与未验证范围 →](VALIDATION.md)
 
 ## Dogfood 时看什么
 

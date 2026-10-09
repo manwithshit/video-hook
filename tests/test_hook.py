@@ -51,7 +51,7 @@ class HookTests(unittest.TestCase):
         plan = work / 'plan.json'
         hook.write(plan, p)
         preview = self.root / 'preview'
-        hook.render(argparse.Namespace(plan=str(plan), out=str(preview), max_side=320))
+        hook.render(argparse.Namespace(plan=str(plan), out=str(preview), max_side=160))
         self.assertEqual(hook.read(preview/'manifest.json')['hook_duration'], 3.6)
         with self.assertRaises(ValueError):
             hook.approve(argparse.Namespace(render=str(preview), quote='测试确认', opening_quote=''))
@@ -60,10 +60,19 @@ class HookTests(unittest.TestCase):
         p['existing_opening'] = {'status': 'none', 'body_start': 0}
         plan.write_text(json.dumps(p))
         preview2 = self.root / 'preview2'
-        hook.render(argparse.Namespace(plan=str(plan), out=str(preview2), max_side=320))
+        hook.render(argparse.Namespace(plan=str(plan), out=str(preview2), max_side=160))
         hook.approve(argparse.Namespace(render=str(preview2), quote='Synthetic test fixture approval, not user media', opening_quote=''))
         final = hook.prepend(argparse.Namespace(render=str(preview2), out=str(self.root/'final')))
         self.assertAlmostEqual(final['qa']['duration'], 9.6, places=1)
+        self.assertEqual(final['qa']['width'], 320)
+        self.assertEqual(hook.read(preview2/'manifest.json')['width'], 160)
+        self.assertEqual(Path(final['output']).parent, video.parent.resolve())
+        self.assertEqual(Path(final['output']).name, '源 视频_hook_v1.mp4')
+        self.assertTrue(Path(final['srt']).exists())
+        self.assertTrue(Path(final['output']).with_suffix('.json').exists())
+        self.assertTrue((preview2/'preview.mp4').exists())
+        self.assertEqual(final['join']['black_pixel_max'], 0)
+        self.assertLess(final['join']['separator_audio_rms'], .006)
         self.assertEqual(hook.digest(video), before)
         final_cues = hook.parse_srt(self.root/'final/final.srt')
         self.assertAlmostEqual(final_cues[2]['start'], 4.1)
