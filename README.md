@@ -4,7 +4,7 @@
 
 **从剪好的视频里，挑出让人想继续看正文的那一段。**
 
-给 Agent 一份成片和匹配的 SRT，它理解整片主旨，挑出有结果、有反差或反常识的片段，保持原意做精剪。预览包含钩子与正文开头；你认可后，交付钩子与完整原片拼接的新成片。
+给 Agent 一份成片；有匹配 SRT 就复用，没有则用本地 ASR 转写。它理解整片主旨，挑出有结果、有反差或反常识的片段，保持原意做精剪。预览包含钩子与正文开头；你认可后，交付钩子与完整原片拼接的新成片。
 
 `Private dogfood` · `本地 FFmpeg` · `一份环境，多个 Agent`
 
@@ -30,13 +30,13 @@
 - **可以精剪，不能改意。** 删解释、重复和铺垫，保持原声、因果与操作顺序。
 - **完整比秒数重要。** 10 秒只是参考，表达自然可以更长。
 
-工作流：`成片 + SRT → 理解整片 → 钩子及正文开头预览 → 用户确认 → 钩子 + 完整原片`
+工作流：`成片 → 复用 SRT 或本地转写 → 理解整片 → 钩子及正文开头预览 → 用户确认 → 钩子 + 完整原片`
 
 最终文件与原视频放在**同一文件夹**，另存为 `final_hook_v1.mp4`、`final_hook_v1.srt` 和 `final_hook_v1.json`；重名自动递增。正文默认从 0 秒完整接入，抽出的片段仍保留在正文。已有钩子时，先确认保留还是替换。源文件不覆盖。
 
 ## 安装一次
 
-需要 Python 3.9+、FFmpeg 和 ffprobe。Python 运行时只用标准库，没有单独的模型 SDK。
+需要 Python 3.9+、FFmpeg 和 ffprobe。Python 运行时只用标准库。没有外部字幕时，另需 PATH 中的 `whisper-cli` 和本地 whisper.cpp GGML 模型；安装器不自动下载这些依赖。首次缺少时会提示引擎安装命令、模型下载地址及存放位置，见 [首次使用指引](skill/references/asr-setup.md)。
 
 ```bash
 gh repo clone manwithshit/video-hook
@@ -56,9 +56,9 @@ python3 scripts/install.py --vault '/absolute/path/to/ObsidianMac'
 
 在 Agent 的新会话中输入：
 
-> 使用 video-hook，分析这个成片和 SRT。先给我贴合主旨、连贯自然的钩子预览；允许不改变原意的精剪，不必限制在 10 秒，确认后再前置。
+> 使用 video-hook，分析这个成片。有匹配字幕则复用，没有就本地转写。先给我贴合主旨、连贯自然的钩子预览；允许不改变原意的精剪，不必限制在 10 秒，确认后再前置。
 
-然后提供两个文件的绝对路径。Codex 可显式写 `$video-hook`；Claude Code 可使用 `/video-hook`。
+然后提供视频的绝对路径；匹配 SRT 可选。Codex 可显式写 `$video-hook`；Claude Code 可使用 `/video-hook`。
 
 <details>
 <summary>脚本入口与可复查输出</summary>
@@ -67,9 +67,10 @@ python3 scripts/install.py --vault '/absolute/path/to/ObsidianMac'
 python3 skill/scripts/run.py doctor
 python3 skill/scripts/run.py prepare \
   --video '/absolute/final.mp4' \
-  --srt '/absolute/final.srt' \
   --out '/absolute/hook-work-v1'
 ```
+
+已有字幕可加 `--srt /absolute/final.srt`；无字幕时可通过 `--asr-model /absolute/ggml-small.bin` 或 `VIDEO_HOOK_ASR_MODEL` 指定已安装模型。省略时查找有限的本地缓存，范围见 [CLI 合约](skill/references/cli.md)。同名字幕查找有歧义会报错，不自动猜选。
 
 Agent 读取完整字幕和抽样画面，填写生成的计划，再执行：
 
@@ -101,7 +102,7 @@ python3 skill/scripts/run.py prepend \
 
 - Agent 负责语义判断；脚本没有“爆款评分”，也不会独立决定最佳钩子。
 - v0.1 面向 SDR 成片，输出 H.264/AAC；正文前置时重新编码。原画面中的烘焙字幕保留，不重复叠字幕。
-- SRT 只作定位依据，不能代替听音。全解码、时长、黑屏/静音检测不等于人工听感验收。
+- ASR 不读取画面中的烘焙文字，生成字幕可能识别错误；没有人声或转写失败时不静默改用纯视觉。SRT 只作定位依据，不能代替听音。全解码、时长、黑屏/静音检测不等于人工听感验收。
 - 暂不自动配音或追加音效；不裁画幅、不做 HDR 色彩转换。保留原视频第一音轨，输出 stereo 48kHz。
 - Skill 会把字幕/抽样图片交给当前 Agent 理解；渲染脚本本身不联网、不上传媒体。
 
@@ -113,7 +114,7 @@ python3 skill/scripts/run.py prepend \
 python3 -m unittest discover -s tests -v
 ```
 
-测试覆盖完整正文的画面、声音和字幕，低清预览后的原尺寸输出，分数帧率与竖屏，同目录版本命名，审批失效，已有片头处理及编码/写入失败保护。当前处于 Private Dogfood 阶段。[本次实际验证与未验证范围 →](VALIDATION.md)
+测试同时覆盖字幕查找优先级/歧义、失败诊断、自动字幕哈希绑定和音轨延迟对齐；真实 ASR 与模拟引擎测试分别记录。测试覆盖完整正文的画面、声音和字幕，低清预览后的原尺寸输出，分数帧率与竖屏，同目录版本命名，审批失效，已有片头处理及编码/写入失败保护。当前处于 Private Dogfood 阶段。[本次实际验证与未验证范围 →](VALIDATION.md)
 
 ## Dogfood 时看什么
 

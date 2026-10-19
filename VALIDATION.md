@@ -39,3 +39,28 @@
 - 黑场中心 RGB 最大值 0，音频 RMS 0。原片、源 SRT 的 SHA-256 未变；同目录交付 MP4/SRT 哈希与检查记录一致。
 - 最终 MP4、SRT、JSON 以 `_hook_v1` 后缀放在原片同一文件夹，未覆盖原文件。完整命令与测试记录保留于本机 `.local/benq-full-delivery-261009-v1/` 和 `.local/tests-upgrade-v4.log`。
 - Skill 校验、README 图片/SVG 审计、差异空白检查通过。Codex、Claude Code、通用 Agents、Antigravity 与 Obsidian Vault 的 5 个入口重新运行 doctor，均解析到同一仓库源码和现有运行环境；没有安装新环境。
+
+
+## 可选字幕与本地 ASR（2026-10-19）
+
+分支 `codex/local-asr-input`，本机 Apple M5；复用已安装 whisper-cli 1.9.4 和缓存多语种 large-v3，未安装或下载新模型。原片、原有字幕、历史预览不覆盖。范围为 A（同名字幕查找）与 B（本地 ASR），未实现 C（纯视觉无字幕模式）。
+
+### 已验证
+
+- **22 项 unittest 全通过**，包含原有 15 项及新增 7 项。新增测试用模拟 ASR 子进程验证参数、日志和错误行为，并实际运行 FFmpeg；它们不是模型精度测试。后续只增加安装指引后，7 项 ASR 测试再次通过。
+- **205.427 秒真实成片，不传 `--srt`**：成功生成 125 条 cues、标准 SRT、`transcript.json`、`windows.json`、全片抽帧与计划模板。音频提取和识别耗时 104.743 秒；这是本次机器/模型的单次实测，不是速度承诺。阅读了开头、费用对比区域与末尾自动字幕，仍有识别用词待人工核对。
+- **显式 SRT 与修改前代码逐文件比对**：source、probe、transcript、windows、plan.template、frames 清单及两张抽帧 SHA-256 完全相同。只新增独立的字幕来源记录；原有 source/plan schema 未变。原视频哈希未变。
+- **真实 ASR 端到端**：从原片另存 30 秒、640×436 测试副本；不带 SRT 生成 18 条字幕 → render → 按用户本轮技术验收授权 approve → prepend。低清预览 320×218、26.8 秒；最终测试成片恢复副本原尺寸 640×436、30 fps、46.8 秒、1404 帧。完整解码、时长、黑场像素与静音检查通过。此处确认只用于测试副本，不代表用户听感或选段验收。
+- 测试成片正文 0、10、29.8 秒画面与源副本对比，缩小 RGB 平均绝对误差最大 0.216/255。正文 5、15、25 秒音频零延迟相关性均大于 0.9998；全部 18 条正文字幕原文保留，时间统一后移 16.8 秒。副本源文件哈希未变。
+- 单元测试验证有 1 秒延迟的音轨提取后仍保留起始静音，避免 ASR 时间轴整体提前。
+- 实际传入不存在模型路径时，在音频提取前停止，未创建工作目录，错误中提供引擎安装、推荐模型直链、缓存位置及完整指引路径。有匹配 SRT 则不检查或调用 ASR。
+- 已核对官方 small 模型页面及 Homebrew 说明：首次下载指引含多语种 small、约 488 MB / 466 MiB、SHA-256 校验及临时文件转正步骤；未执行下载。HTML 候选页不属于本轮范围。
+
+### 未验证 / 使用边界
+
+- 真实测试用 large-v3；small 的性能和中文精度未在本轮实测。doctor 只检测依赖发现，不保证模型可加载。
+- 尚未由用户试听、逐句校对 ASR 或验收创意效果。画面已有烧录字幕保持原样，自动 SRT 可能与其文字不同。
+- 未验证 M1、其他操作系统、mlx-whisper/faster-whisper 适配；无音轨、空转写或失败不会改用视觉猜段。
+- 没有输出完整原始 205 秒成片的新版本，仅对独立 30 秒测试副本做完整前置。未发布、推送或改动宣传口播稿。
+
+全部真实媒体、运行日志和验证 JSON 保存在 gitignored `.local/asr-dogfood-261019/`。关键记录：`full-prepare/subtitle-source.json`、`explicit-regression.json`、`fixture/input_hook_v1.json`、`delivery-signal-check.json`、`all-tests.log`、`asr-tests-final.log`、`missing-model.stderr.log`。

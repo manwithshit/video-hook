@@ -1,12 +1,39 @@
 # CLI 合约
 
-所有命令通过 `python3 <skill>/scripts/run.py` 调用。Python 3.9+ 标准库，FFmpeg / ffprobe；不需要模型 SDK。CLI 不会自行语义选段。
+所有命令通过 `python3 <skill>/scripts/run.py` 调用。Python 3.9+ 标准库，FFmpeg / ffprobe；外部字幕路径不需要模型；无字幕回退额外需要本地 `whisper-cli` 与 GGML 模型，不需要 Python 模型 SDK。CLI 不会自行语义选段。
 
 ## prepare
 
-`prepare --video ABS_MP4 --srt ABS_SRT --out NEW_DIR [--samples 16]`
+`prepare --video ABS_MP4 --out NEW_DIR [--srt ABS_SRT] [--samples 16] [--asr-model LOCAL_GGML] [--asr-language auto]`
 
-创建整片字幕、45 秒左右的重叠阅读窗口、全片均匀抽样帧、视频参数和 SHA-256，以及待填写计划。2–60 张抽样仅作导航，不能替代审片。拒绝 SRT 超出视频时长；同步仍需 Agent 人工核对。
+创建整片字幕、45 秒左右的重叠阅读窗口、全片均匀抽样帧、视频参数和 SHA-256，以及待填写计划。2–60 张抽样仅作导航，不能替代审片。已有 SRT 沿用旧校验：末条不得超出视频时长 0.15 秒以上；同步仍需 Agent 人工核对。
+
+### 字幕来源优先级
+
+1. 显式 `--srt`：直接读取、校验、绑定原文件哈希，不调用 ASR；路径错误或字幕无效就报错。
+2. 视频同目录 `<视频文件名去扩展名>.srt`：优先复用，不改变文件。
+3. `asr/`、`edit/`、`edit/asr/` 中同名 `.srt`：仅当唯一时复用；多个不同路径匹配时要求显式 `--srt`。不递归扫描、不猜测“原始ASR”或历史版本文件。
+4. 均不存在：提取第一条音轨为 16 kHz 单声道 PCM WAV，调用离线 `whisper-cli`，转成标准 SRT 后复用原流水线。保留音轨起始延迟与末尾静音；不做 VAD 删停顿或改变时间线。
+
+同名字幕仍可能属于错误剪辑版本，必须审查同步。自动找到的字幕有错误时不跳过、不悄悄重新转写。
+
+首次缺依赖时，CLI 会返回安装命令、模型直链和缓存路径；Agent 应按 [首次使用指引](asr-setup.md) 引导用户补齐，而不是仅说任务无法进行。
+
+### 本地 ASR 配置
+
+- `whisper-cli` 从 PATH 查找，使用其默认硬件后端；支持的语言值以本机 `whisper-cli --help` 为准，默认 `auto`，中文可显式 `--asr-language zh`。
+- 模型优先级：`--asr-model` → `VIDEO_HOOK_ASR_MODEL` → 本地缓存。显式配置无效直接报错，不偷换模型。
+- 缓存目录：`~/.cache/video-hook/models`、`~/.cache/whisper`、`~/.cache/hyperframes/whisper/models`。
+- 精确匹配模型文件 `ggml-{small,base,tiny,medium,large-v3,large-v3-turbo,large-v2}.bin`，按此顺序查找；每个模型按上述目录顺序查找。优先复用较小多语种模型，不默认选英文专用模型。量化模型等其他文件名可通过参数显式指定。
+- 本实现只接入 whisper.cpp；不宣称支持尚未实现的 mlx-whisper/faster-whisper 适配。不会自动下载模型、安装依赖、调用云端 ASR 或退回无字幕视觉模式。
+- `doctor` 中 `local_asr.available` 仅表示发现了可执行文件和非空模型，不保证模型可加载或转写成功。
+
+### 新增证据文件
+
+- 所有路径新增 `subtitle-source.json`，注明 `explicit` / `sidecar` / `local_asr`、实际字幕路径及哈希；原有 `source.json`、计划 source 字段与下游 schema 不变。
+- 仅 ASR 路径生成 `transcript.srt`（标准定位字幕），以及 `asr/audio.wav`、`raw.srt`、引擎 JSON、调用参数与 stdout/stderr 日志。记录模型路径/大小、语言请求与耗时，识别结果标为未人工审核。
+- 自动转写必须产生可解析、非空、有序、正时长的 cues。超出视频结束超过 0.15 秒时报错；容差内尾端按视频时长裁齐并记录。失败保留工作目录排错，不生成可用计划。
+- 不修正识别文字、不烧录新字幕；自动 SRT 可能与已烘焙文字不同。生成 SRT 被后续计划按路径和 SHA-256 绑定，必须保留，修改后须重建计划/预览。
 
 ## 计划
 

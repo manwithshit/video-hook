@@ -14,6 +14,7 @@ from pathlib import Path
 from fractions import Fraction
 
 from openshorts_windows import build_transcript_windows
+import local_asr
 
 
 def run(args):
@@ -112,12 +113,43 @@ def save_srt(path, cues):
 
 
 def prepare(args):
-    video, srt = Path(args.video).expanduser().resolve(), Path(args.srt).expanduser().resolve()
+    video = Path(args.video).expanduser().resolve()
     p, v, duration = media_info(video)
-    cues = parse_srt(srt)
-    if cues[-1]['end'] > duration + 0.15:
-        raise ValueError('SRT extends beyond video. Check that both use the same edited timeline.')
-    out = fresh(args.out)
+    srt, kind = local_asr.discover_srt(video, getattr(args, 'srt', None))
+    if srt is not None:
+        cues = parse_srt(srt)
+        if cues[-1]['end'] > duration + 0.15:
+            raise ValueError('SRT extends beyond video. Check that both use the same edited timeline.')
+        out = fresh(args.out)
+        provenance = {'kind': kind, 'review': 'Verify subtitle alignment against this edited video.'}
+    else:
+        backend = local_asr.resolve_backend(getattr(args, 'asr_model', None))
+        out = fresh(args.out)
+        raw_srt, provenance = local_asr.transcribe(
+            video, out, duration, backend, getattr(args, 'asr_language', 'auto'))
+        try:
+            cues = parse_srt(raw_srt)
+        except ValueError as e:
+            raise ValueError('ASR produced no usable ordered speech cues; inspect asr/ logs '
+                             'or supply a matched --srt. ' + str(e)) from e
+        # Never silently accept hallucinated timestamps outside the video timeline.
+        if max(c['end'] for c in cues) > duration + 0.15:
+            raise ValueError('ASR timestamps extend beyond video; inspect asr/raw.srt.')
+        adjusted = 0
+        for cue in cues:
+            if cue['end'] > duration:
+                cue['end'] = round(duration, 3)
+                adjusted += 1
+            if cue['start'] >= cue['end']:
+                raise ValueError('ASR cue has no duration within the video timeline.')
+        provenance['tail_cues_clipped'] = adjusted
+        srt = out / 'transcript.srt'
+        save_srt(srt, cues)
+        cues = parse_srt(srt)
+        provenance['raw_srt_sha256'] = digest(raw_srt)
+    provenance['srt'] = str(srt)
+    provenance['srt_sha256'] = digest(srt)
+    write(out / 'subtitle-source.json', provenance)
     source = {'video': str(video), 'video_sha256': digest(video), 'srt': str(srt), 'srt_sha256': digest(srt)}
     write(out / 'source.json', source)
     write(out / 'probe.json', p)
@@ -140,7 +172,7 @@ def prepare(args):
              '-vf', "scale=640:640:force_original_aspect_ratio=decrease", out / 'frames' / name])
         samples.append({'time': t, 'file': 'frames/' + name})
     write(out / 'frames.json', samples)
-    return {'workspace': str(out), 'duration': duration, 'cues': len(cues),
+    return {'workspace': str(out), 'duration': duration, 'cues': len(cues), 'subtitle_source': kind,
             'note': 'Read all transcript cues and inspect visual samples; windows are not ranked hooks.'}
 
 
@@ -475,10 +507,14 @@ def main():
     sub = parser.add_subparsers(dest='command', required=True)
     p = sub.add_parser('doctor')
     p.set_defaults(func=lambda _: {'python': sys.executable, 'script': str(Path(__file__).resolve()),
-                                  'ffmpeg': shutil.which('ffmpeg'), 'ffprobe': shutil.which('ffprobe')})
+                                  'ffmpeg': shutil.which('ffmpeg'), 'ffprobe': shutil.which('ffprobe'),
+                                  'local_asr': local_asr.doctor()})
     p = sub.add_parser('prepare')
-    for flag in ('video', 'srt', 'out'):
+    for flag in ('video', 'out'):
         p.add_argument('--' + flag, required=True)
+    p.add_argument('--srt', help='Matched subtitles; omitted: same-name sidecar, then offline ASR')
+    p.add_argument('--asr-model', help='Existing whisper.cpp GGML model path; no download')
+    p.add_argument('--asr-language', default='auto', help='whisper-cli language code (default: auto)')
     p.add_argument('--samples', type=int, choices=range(2, 61), default=16)
     p.set_defaults(func=prepare)
     p = sub.add_parser('validate')
