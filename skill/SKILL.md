@@ -45,4 +45,4 @@ python3 "$SKILL_DIR/scripts/run.py" render --plan /absolute/plan.json --out /abs
 
 ## 已认可的校准案例
 
-读 [cases.md](references/cases.md)。明基：完整对比 22 秒→忠于原意的段内精剪 14.1 秒，用户确认衔接自然。鱼灯：9.13 秒，修正带入下一句、渐黑和黑屏。两例是人工反馈基准，不是留存效果实验，也不是自动全流程验收。
+读 [cases.md](references/cases.md)。工作台案例：完整对比 22 秒→忠于原意的段内精剪 14.1 秒，用户确认衔接自然。灯笼案例：9.13 秒，修正带入下一句、渐黑和黑屏。两例是人工反馈基准，不是留存效果实验，也不是自动全流程验收。

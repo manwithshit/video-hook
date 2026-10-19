@@ -44,8 +44,8 @@
 - `segments`: `[[start_seconds,end_seconds],...]`，半开区间，按原片顺序、不可重叠、按输出帧率对齐。
 - `fps`: 固定输出帧率，例如 `30` 或 `30000/1001`；VFR 以时间选取后重采样成 CFR。
 - `fade_seconds`, `black_seconds`: 默认约 `.4` 和 `.2`，prepare 按源帧率取整到最近帧；必须帧对齐。
-- `fade_overlap_seconds`: 默认 0，即原片结束后定格渐黑。可设置让渐黑覆盖原片尾部，不能超过渐黑时长。鱼灯基准为 `4/30`。
-- `audio_tail_fade_seconds`: 末段音轨渐隐，默认 `.02`；鱼灯基准 `4/30`。中间接缝采用 5ms/20ms 短淡化。
+- `fade_overlap_seconds`: 默认 0，即原片结束后定格渐黑。可设置让渐黑覆盖原片尾部，不能超过渐黑时长。灯笼案例基准为 `4/30`。
+- `audio_tail_fade_seconds`: 末段音轨渐隐，默认 `.02`；灯笼案例基准 `4/30`。中间接缝采用 5ms/20ms 短淡化。
 - `existing_opening`: `status=unknown|none|present`, `body_start=秒`。none 必须从0开始；present 可保留0或经用户明确同意后指定替换起点。
 
 `validate --plan PLAN` 检查哈希、边界与字段，**不会**判断文字证据真假。

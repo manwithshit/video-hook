@@ -7,3 +7,20 @@ __pycache__/
 *.mov
 *.wav
 *.srt
+
+# Local credentials, additional media and model weights
+.env
+.env.*
+!.env.example
+*.m4a
+*.mp3
+*.flac
+*.aif
+*.aiff
+*.mkv
+*.webm
+*.ogg
+*.safetensors
+*.gguf
+*.pt
+*.bin

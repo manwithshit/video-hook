@@ -1,21 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" role="img" aria-labelledby="title desc">
 <title id="title">video-hook — 把值得追问的结果，放到开头</title>
-<desc id="desc">从成片中保留有主旨关联的连贯片段，精剪后渐黑，再进入正文。明基案例从22秒精简到14.1秒，转场保留A版：0.4秒渐黑加0.2秒纯黑。</desc>
+<desc id="desc">只提供成片，复用已有字幕或使用本地语音模型转写；先生成候选预览，确认后前置完整正文。首次缺识别依赖时需按提示安装。</desc>
 <defs><linearGradient id="fade"><stop stop-color="#7cf2bf"/><stop offset="1" stop-color="#11151b"/></linearGradient></defs>
 <rect width="1200" height="620" rx="24" fill="#11151b"/>
 <g font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
 <text x="56" y="77" fill="#7cf2bf" font-size="24" letter-spacing="3">SOURCE-FAITHFUL VIDEO EDITING</text>
 <text x="52" y="188" fill="#f4f5ed" font-size="108" font-weight="750" letter-spacing="-5">video-hook<tspan fill="#7cf2bf">.</tspan></text>
 <text x="56" y="264" fill="#f4f5ed" font-size="44" font-weight="600">把值得追问的结果，放到开头。</text>
-<text x="56" y="322" fill="#a6b0bd" font-size="28">主旨相关 · 原意不变 · 不被 10 秒限制</text>
+<text x="56" y="322" fill="#a6b0bd" font-size="28">只给成片 · 字幕可选 · 先预览，再确认</text>
 <g transform="translate(56,374)">
-<text y="24" fill="#a6b0bd" font-size="24">明基 · 精剪时间线</text>
-<text x="1088" y="24" fill="#f3b56c" font-size="30" text-anchor="end" font-weight="600">22s → 14.1s</text>
-<rect y="54" width="670" height="76" rx="8" fill="#7cf2bf"/>
-<rect x="684" y="54" width="294" height="76" rx="8" fill="#7cf2bf"/>
-<rect x="992" y="54" width="96" height="76" rx="8" fill="url(#fade)"/>
-<text x="28" y="103" fill="#11151b" font-size="32" font-weight="600">前态 → 切换 → 结果</text>
-<text x="831" y="103" fill="#11151b" font-size="32" font-weight="600" text-anchor="middle">回切验证</text>
-<path d="M0 148h1088 M0 144v14 M670 144v14 M978 144v14 M1088 144v14" stroke="#647181" stroke-width="2"/>
-<text y="190" fill="#a6b0bd" font-size="24">保留 A 版 · 渐黑 0.4s + 黑场 0.2s → 正文</text>
+<text y="24" fill="#a6b0bd" font-size="24">候选片段 → 转场 → 完整正文</text>
+<text x="1088" y="24" fill="#f3b56c" font-size="30" text-anchor="end" font-weight="600">本地 ASR</text>
+<rect y="54" width="294" height="76" rx="8" fill="#7cf2bf"/>
+<rect x="404" y="54" width="684" height="76" rx="8" fill="#7cf2bf"/>
+<rect x="308" y="54" width="82" height="76" rx="8" fill="url(#fade)"/>
+<text x="28" y="103" fill="#11151b" font-size="32" font-weight="600">预告片段</text>
+<text x="746" y="103" fill="#11151b" font-size="32" font-weight="600" text-anchor="middle">完整原片</text>
+<path d="M0 148h1088 M0 144v14 M294 144v14 M404 144v14 M1088 144v14" stroke="#647181" stroke-width="2"/>
+<text y="190" fill="#a6b0bd" font-size="24">首次缺语音引擎或模型，按提示补齐后再开始。</text>
 </g></g></svg>

@@ -1,42 +1,34 @@
-<p align="center"><img src="assets/readme/hero.svg" width="100%" alt="video-hook：提炼贴合主旨的连贯钩子；明基案例从22秒精简至14.1秒" /></p>
+<p align="center"><img src="assets/readme/hero.svg" width="100%" alt="video-hook：只提供成片，复用字幕或本地转写，先看预览再确认前置" /></p>
 
 # video-hook
 
-**从剪好的视频里，挑出让人想继续看正文的那一段。**
+**从已剪好的视频里，提炼一段预告式开头。**
 
-给 Agent 一份成片；有匹配 SRT 就复用，没有则用本地 ASR 转写。它理解整片主旨，挑出有结果、有反差或反常识的片段，保持原意做精剪。预览包含钩子与正文开头；你认可后，交付钩子与完整原片拼接的新成片。
+把成片交给 Agent，说清楚视频主题。它结合字幕和画面，寻找有具体结果、反差或前后变化的片段，剪出带正文开头的预览；你选定并确认后，再接到完整原片前面。
 
-`Private dogfood` · `本地 FFmpeg` · `一份环境，多个 Agent`
+**SRT 可选。** 有匹配字幕就复用，没有则调用本地语音识别。首次没有识别引擎或模型时，需要先按提示补齐，不能跳过这一步直接剪辑。
 
-## 已认可的效果
+## 你会得到什么
 
-| 案例 | 调整 | 人工反馈 |
-|---|---|---|
-| 明基 AI 工作台 | 22 秒完整对比 → **14.1 秒**；删去窗口用途说明和铺垫，保留前态、切换、结果与回切 | 用户确认跳剪衔接自然；五版转场对照后选择保留 A 版 |
-| 徽州鱼灯 | **9.13 秒**；收音避开下一句，渐黑后保留黑屏 | 用户表示效果符合预期 |
+- 通常 1–3 个有意义的候选；素材只适合一条就只做一条，没有合适片段也会说明。
+- 每条预览包含候选片段、渐黑转场与正文开头，供你连着看、连着听。
+- 确认后的新成片、调整时间后的独立 SRT 和处理记录，另存在原片同目录：`final_hook_v1.mp4`、`final_hook_v1.srt`、`final_hook_v1.json`。重名递增，不覆盖原文件。
 
-这是两例人工校准，**尚无平台留存提升数据**。原始视频、字幕和样片仅留本机。[查看接受与淘汰的具体原因 →](skill/references/cases.md)
+正文默认从 0 秒完整保留，抽出的片段仍留在正文里；已有片头是否替换由你决定。默认不生成 HTML 候选页，也不输出可编辑的剪映工程。
 
-## 当前保留：A 版渐黑
+## 安装
 
-**高亮结束 → 0.4 秒渐黑 → 0.2 秒纯黑 → 正文从 0 秒开始。**
+当前验证环境为 **macOS / Apple Silicon**。需要可访问本仓库的 GitHub 账号、Python 3.9+、FFmpeg 和 ffprobe。仓库目前为私有开发验证项目，不代表已公开开源；[许可与依赖说明](THIRD_PARTY.md)。
 
-明基对照预览在钩子后接了原片前 16.63 秒，用户选择保留 A 版。直接切黑、无黑场和深灰场暂不采用；这是当前个人偏好基准，不是平台效果结论。已有片头的原片仍须先确认正文起点。
+**请克隆完整仓库，再运行安装器。不要只复制 `skill/` 文件夹。** 启动器依赖仓库里的共享运行环境和安装脚本。
 
-## 哪些片段值得前置
+macOS 已有 Homebrew、但还没有 FFmpeg 时：
 
-- **先过主旨门槛。** 反差必须与产品或正文核心价值直接相连。
-- **让对比看得见。** 作者的总结不代替具体结果；保留必要的前态、操作和结果。
-- **可以精剪，不能改意。** 删解释、重复和铺垫，保持原声、因果与操作顺序。
-- **完整比秒数重要。** 10 秒只是参考，表达自然可以更长。
+```bash
+brew install ffmpeg
+```
 
-工作流：`成片 → 复用 SRT 或本地转写 → 理解整片 → 钩子及正文开头预览 → 用户确认 → 钩子 + 完整原片`
-
-最终文件与原视频放在**同一文件夹**，另存为 `final_hook_v1.mp4`、`final_hook_v1.srt` 和 `final_hook_v1.json`；重名自动递增。正文默认从 0 秒完整接入，抽出的片段仍保留在正文。已有钩子时，先确认保留还是替换。源文件不覆盖。
-
-## 安装一次
-
-需要 Python 3.9+、FFmpeg 和 ffprobe。Python 运行时只用标准库。没有外部字幕时，另需 PATH 中的 `whisper-cli` 和本地 whisper.cpp GGML 模型；安装器不自动下载这些依赖。首次缺少时会提示引擎安装命令、模型下载地址及存放位置，见 [首次使用指引](skill/references/asr-setup.md)。
+安装 Skill（克隆的是默认分支）：
 
 ```bash
 gh repo clone manwithshit/video-hook
@@ -44,82 +36,104 @@ cd video-hook
 python3 scripts/install.py
 ```
 
-使用 Obsidian 统一管理 Skill 时：
+安装器创建仓库内唯一的 `.venv`，将 Claude Code、Codex、通用 Agents 与 Antigravity 的入口链接到同一份源码。已有同名入口指向别处时会停止，不覆盖。它**不自动安装 ASR 引擎或下载模型**；安装成功也不等于视频转写环境已就绪。
+
+更新已有安装时，在完整仓库目录执行 `git pull --ff-only`，再运行 `python3 scripts/install.py`。旧的功能分支安装不会因此自动切到默认分支；先核对当前分支。
+
+<details>
+<summary>可选：将 Obsidian Vault 作为统一 Skill 入口</summary>
 
 ```bash
 python3 scripts/install.py --vault '/absolute/path/to/ObsidianMac'
 ```
 
-安装器创建唯一 `.venv`，将 Claude Code、Codex、Antigravity 的 Skill 入口链接到同一源码。已有同名入口指向别处时会停止，不覆盖。每台 Mac 单独安装；iCloud 的目录同步不等于机器环境已安装。
+每台电脑单独准备运行环境；同步 Skill 文件不等于另一台机器已安装依赖。
 
-## 直接开始
+</details>
 
-在 Agent 的新会话中输入：
+## 第一次只给视频，会发生什么？
 
-> 使用 video-hook，分析这个成片。有匹配字幕则复用，没有就本地转写。先给我贴合主旨、连贯自然的钩子预览；允许不改变原意的精剪，不必限制在 10 秒，确认后再前置。
+Agent 先检查运行环境，并查找字幕。你不需要自己先导出 SRT。
 
-然后提供视频的绝对路径；匹配 SRT 可选。Codex 可显式写 `$video-hook`；Claude Code 可使用 `/video-hook`。
+| 当前条件 | 下一步 |
+|---|---|
+| 提供了匹配 SRT，或找到同名 SRT | 直接使用，不调用语音模型；仍需确认字幕与成片同步 |
+| 没有字幕，但已有 `whisper-cli` 与本地模型 | 提取音频，本地转写，再进入选段流程 |
+| 缺 `whisper-cli` | 停止转写，提示安装引擎 |
+| 有引擎，但没有本地模型 | 停止转写，提供模型下载地址、存放位置及重试说明 |
+| 模型加载失败、转写为空或字幕有歧义 | 返回错误与诊断信息，不用视觉猜段代替成功结果 |
+
+首次建议使用多语种 `small` 模型；**安装引擎不会附带模型**。完整步骤、下载量、校验与失败处理见 [首次使用指引](skill/references/asr-setup.md)。这里需要的是语音识别模型，不需要另装聊天大模型。
+
+当前脚本只检查并给出指引，不会自动下载或补齐后自动续跑。Agent 在获得安装/下载授权后可按指引操作，再重新运行。`doctor` 只能确认文件和程序被发现，不保证模型加载或识别质量。
+
+## 使用
+
+对 Agent 说：
+
+> 使用 video-hook，给这条已剪好的视频做预告式开头。主题是……。有匹配字幕就复用，没有就本地转写；首次缺依赖时先说明需要安装什么。先剪出候选预览给我看，等我选定并确认后再接到完整原片前面。
+
+提供视频文件或实际本地路径即可。有匹配字幕也可以一起提供。Codex 可使用 `$video-hook`，Claude Code 可使用 `/video-hook`。
+
+流程：**成片 → 复用字幕或本地转写 → 理解主题与画面 → 候选预览 → 本人确认 → 完整前置**。
+
+Agent 判断哪些片段值得选；脚本执行具体的剪辑计划。10 秒只是参考，不为压时长删掉必要条件，也不把多步操作剪成“一步完成”。
 
 <details>
-<summary>脚本入口与可复查输出</summary>
+<summary>CLI 与输出记录</summary>
 
 ```bash
 python3 skill/scripts/run.py doctor
 python3 skill/scripts/run.py prepare \
   --video '/absolute/final.mp4' \
-  --out '/absolute/hook-work-v1'
+  --out '/absolute/new-hook-work'
 ```
 
-已有字幕可加 `--srt /absolute/final.srt`；无字幕时可通过 `--asr-model /absolute/ggml-small.bin` 或 `VIDEO_HOOK_ASR_MODEL` 指定已安装模型。省略时查找有限的本地缓存，范围见 [CLI 合约](skill/references/cli.md)。同名字幕查找有歧义会报错，不自动猜选。
+已有字幕可加 `--srt /absolute/final.srt`；本地模型可用 `--asr-model /absolute/ggml-small.bin` 指定。无参数时只查找约定的本地缓存，不全盘搜索、不自动下载。输入优先级、缓存目录与日志见 [CLI 合约](skill/references/cli.md)。
 
-Agent 读取完整字幕和抽样画面，填写生成的计划，再执行：
+Agent 阅读整份字幕和画面抽样，填写计划，再执行：
 
 ```bash
 python3 skill/scripts/run.py render \
   --plan '/absolute/plan.json' \
-  --out '/absolute/hook-preview-v1' \
+  --out '/absolute/new-hook-preview' \
   --max-side 1920
 ```
 
-复核 `preview.mp4`：钩子、A 版转场和约 10–20 秒正文；`hook.mp4` 仅为中间产物。用 `--body-seconds` 可指定正文预览时长。用户确认后：
+审核 `preview.mp4`，其中包含钩子、转场及约 10–20 秒正文；`hook.mp4` 是中间产物。只有取得真实确认后才执行：
 
 ```bash
 python3 skill/scripts/run.py approve \
-  --render '/absolute/hook-preview-v1' \
+  --render '/absolute/new-hook-preview' \
   --quote '用户对选段、衔接与完整前置的实际确认原话'
 python3 skill/scripts/run.py prepend \
-  --render '/absolute/hook-preview-v1' \
-  --out '/absolute/hook-delivery-work-v1'
+  --render '/absolute/new-hook-preview' \
+  --out '/absolute/new-delivery-work'
 ```
 
-`--out` 保存命令、检查记录和暂存文件；最终成片自动另存在原视频同一文件夹。完整约定见 [CLI 合约](skill/references/cli.md)。
+已有片头时，另记录用户保留/替换的决定。所有工作目录必须全新；失败目录保留用于诊断。自动转写的 SRT 是后续计划的哈希绑定输入，需要保留。
 
-`--max-side` 只影响预览；最终从原片按原尺寸、原帧率一次编码。4K 原片可以用 1080p 预览，不会因此交付低清成片。
+`--max-side` 只控制预览。最终从原素材按原尺寸与帧率重新编码，不用低清预览作为成片输入；不是无损流复制。
 
 </details>
 
-## 当前边界
+## 能力边界与隐私
 
-- Agent 负责语义判断；脚本没有“爆款评分”，也不会独立决定最佳钩子。
-- v0.1 面向 SDR 成片，输出 H.264/AAC；正文前置时重新编码。原画面中的烘焙字幕保留，不重复叠字幕。
-- ASR 不读取画面中的烘焙文字，生成字幕可能识别错误；没有人声或转写失败时不静默改用纯视觉。SRT 只作定位依据，不能代替听音。全解码、时长、黑屏/静音检测不等于人工听感验收。
-- 暂不自动配音或追加音效；不裁画幅、不做 HDR 色彩转换。保留原视频第一音轨，输出 stereo 48kHz。
-- Skill 会把字幕/抽样图片交给当前 Agent 理解；渲染脚本本身不联网、不上传媒体。
+- 支持有音轨的常规 SDR 视频；输出 H.264/AAC。暂不支持无音轨素材、纯视觉降级、HDR 色彩处理或单独音频文件输入。
+- 原画面中的烘焙字幕保留；ASR 根据声音生成独立字幕，不读取、修复或重新烧录画面文字。识别人名、数字和时间边界仍需核对。
+- 不保证找到“最佳片段”，不保证每次有多个候选，不自动追加配音、音乐或卡点特效。
+- 默认尾部约 0.4 秒渐黑加 0.2 秒黑场；是否顺畅仍需试听。技术检查不代替听感与内容判断，也没有平台完播率提升承诺。
+- ASR 和视频处理在本机进行，不上传媒体到转写服务；首次下载模型需要网络。字幕和抽样图片交给当前 Agent 理解，其数据处理方式由你使用的 Agent 决定，不能因此宣称整套工作流完全离线。
 
-## 开源基础与验证
+## 验证与来源
 
-复用 [OpenShorts](https://github.com/mutonby/openshorts/tree/1ceb57d77d0429a8f526797287b3529757b31055) 的 MIT 字幕分窗函数，使用本机 [FFmpeg](https://ffmpeg.org/) 处理媒体。主旨筛选、精剪审批、渲染与共享安装是本项目的适配层。[来源与许可 →](THIRD_PARTY.md)
+- 22 项自动测试通过，覆盖显式字幕回归、查找歧义、ASR 失败、音轨延迟、哈希与确认绑定、完整正文保留及版本化输出。
+- M5 上用已缓存 large-v3 对 205.4 秒成片进行了无 SRT 转写，并用独立 30 秒副本完成真实 ASR → 预览 → 完整前置验证。推荐的 small 模型性能和精度未在本轮实测。
+- 首次使用隔离审查覆盖缺引擎、缺模型、损坏模型及安装布局；尚未在另一台空白电脑完成从下载到推理的整套验收。
+- 历史人工校准案例与技术验证范围分开记录：[案例说明](skill/references/cases.md) · [验证记录](VALIDATION.md)。原始媒体、个人运行日志与测试输出不进入仓库。
 
 ```bash
 python3 -m unittest discover -s tests -v
 ```
 
-测试同时覆盖字幕查找优先级/歧义、失败诊断、自动字幕哈希绑定和音轨延迟对齐；真实 ASR 与模拟引擎测试分别记录。测试覆盖完整正文的画面、声音和字幕，低清预览后的原尺寸输出，分数帧率与竖屏，同目录版本命名，审批失效，已有片头处理及编码/写入失败保护。当前处于 Private Dogfood 阶段。[本次实际验证与未验证范围 →](VALIDATION.md)
-
-## Dogfood 时看什么
-
-1. **想继续看吗？** 钩子提出的疑问，要由正文主旨或产品价值兑现。
-2. **对比完整吗？** 删除解释后，必要的前态、操作与结果仍然看得懂。
-3. **接得自然吗？** 连看高亮、渐黑和正文开头，检查截字、带入下一句及重复开场。
-
-每次记录通过或淘汰的具体原因，再调整选段；不以渲染成功代替人工判断。
+使用 [FFmpeg](https://ffmpeg.org/) 处理媒体、[whisper.cpp](https://github.com/ggml-org/whisper.cpp) 进行本地转写，并复用 [OpenShorts](https://github.com/mutonby/openshorts/tree/1ceb57d77d0429a8f526797287b3529757b31055) 的字幕分窗函数。仓库不分发引擎或模型权重。[第三方来源与许可](THIRD_PARTY.md)。
